@@ -44,7 +44,7 @@ deliberately **not** part of the ox-agent binary or its skill set.
 | `internal/{manifest,validate,pack}/` | loading, semantic checks, deterministic tarball |
 | `testdata/` | `valid` + one fixture per named failure check |
 | `.github/workflows/validate.yml` | reusable `workflow_call` — PR validation for product repos |
-| `.github/workflows/release.yml` | reusable `workflow_call` — pack + attach `docs-<ver>.tar.gz` to a release |
+| `.github/workflows/release.yml` | reusable `workflow_call` — pack + attach `docs-<ver>.tar.gz` to a release, then fail-soft `workflow_dispatch` to the site repo |
 | `.github/workflows/tag-release.yml` | this repo's own goreleaser pipeline (`v*.*.*` tags) |
 
 ### Gates

@@ -3,17 +3,26 @@ name: docs-site release pack
 # Reusable workflow: product repos call this on matching release tags (or
 # via workflow_dispatch for the one-time bootstrap onto an existing
 # release). Re-validates the subtree, hard-gates manifest.version against
-# the tag, and uploads docs-<version>.tar.gz + .sha256 to the release.
+# the tag, uploads docs-<version>.tar.gz + .sha256 to the release, then
+# notifies the site repo so it can pin the new version.
 #
 #   jobs:
 #     docs:
 #       permissions:
 #         contents: write
-#       uses: oxidean/docs-manifest/.github/workflows/release.yml@v0.1.1
+#       uses: oxidean/docs-manifest/.github/workflows/release.yml@v0.1.2
 #       with:
 #         tag: ${{ github.ref_name }}   # or dispatch input
 #         dir: docs/site                # optional
-#         cli-version: v0.1.0           # optional
+#         cli-version: v0.1.2           # optional
+#         product: oxl                  # optional; enables site dispatch
+#       secrets:
+#         site_dispatch_token: ${{ secrets.DOCS_SITE_DISPATCH_TOKEN }}
+#
+# The dispatch step is fail-soft: with no `product` input or no
+# site_dispatch_token secret it skips with a notice, so a missing site
+# config never breaks a product release. The token needs Actions:write
+# on the site repo (see README).
 
 on:
   workflow_call:
@@ -35,8 +44,27 @@ on:
       cli-version:
         description: docs-manifest release tag to install
         required: false
-        default: v0.1.1
+        default: v0.1.2
         type: string
+      product:
+        description: Site product slug for dispatch (e.g. oxidean, ox-agent, oxl); empty = no dispatch
+        required: false
+        default: ""
+        type: string
+      site-repo:
+        description: Repository that receives the docs-release dispatch
+        required: false
+        default: oxidean/oxidean.dev
+        type: string
+      site-workflow:
+        description: workflow_dispatch file name in the site repo
+        required: false
+        default: docs-release.yml
+        type: string
+    secrets:
+      site_dispatch_token:
+        description: Token with Actions:write on the site repo (org secret DOCS_SITE_DISPATCH_TOKEN); empty = skip dispatch
+        required: false
 
 permissions:
   contents: write
@@ -84,3 +112,33 @@ jobs:
         run: |
           set -euo pipefail
           gh release upload "$TAG" "docs-${DOCS_VERSION}.tar.gz" "docs-${DOCS_VERSION}.tar.gz.sha256" --clobber
+
+      # Fail-soft: skips when no product input or no dispatch token, and a
+      # dispatch failure never fails the release — the bundle is already
+      # attached and docs:update can still discover it.
+      - name: Notify site repo
+        env:
+          DISPATCH_TOKEN: ${{ secrets.site_dispatch_token }}
+          SITE_REPO: ${{ inputs.site-repo }}
+          SITE_WORKFLOW: ${{ inputs.site-workflow }}
+          PRODUCT: ${{ inputs.product }}
+          TAG: ${{ inputs.tag }}
+          DOCS_VERSION: ${{ steps.docs.outputs.version }}
+          SOURCE_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PRODUCT" ]; then
+            echo "::notice::docs dispatch skipped — no 'product' input"
+            exit 0
+          fi
+          if [ -z "$DISPATCH_TOKEN" ]; then
+            echo "::notice::docs dispatch skipped — site_dispatch_token not configured"
+            exit 0
+          fi
+          if GH_TOKEN="$DISPATCH_TOKEN" gh workflow run "$SITE_WORKFLOW" -R "$SITE_REPO" \
+            -f product="$PRODUCT" -f version="$DOCS_VERSION" \
+            -f repo="$SOURCE_REPO" -f tag="$TAG"; then
+            echo "dispatched $SITE_WORKFLOW to $SITE_REPO: $PRODUCT@$DOCS_VERSION ($SOURCE_REPO $TAG)"
+          else
+            echo "::warning::docs dispatch failed — bundle attached; site can still poll via docs:update"
+          fi

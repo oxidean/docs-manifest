@@ -5,7 +5,7 @@ name: docs-site validate
 #
 #   jobs:
 #     docs:
-#       uses: oxidean/docs-manifest/.github/workflows/validate.yml@v0.1.1
+#       uses: oxidean/docs-manifest/.github/workflows/validate.yml@v0.1.2
 #       with:
 #         dir: docs/site            # optional
 #         cli-version: v0.1.0       # optional
@@ -21,7 +21,7 @@ on:
       cli-version:
         description: docs-manifest release tag to install
         required: false
-        default: v0.1.1
+        default: v0.1.2
         type: string
 
 permissions:

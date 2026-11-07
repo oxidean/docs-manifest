@@ -82,16 +82,19 @@ on:
 jobs:
   validate:
     if: github.event_name == 'pull_request'
-    uses: oxidean/docs-manifest/.github/workflows/validate.yml@v0.1.1
+    uses: oxidean/docs-manifest/.github/workflows/validate.yml@v0.1.2
     # with: { dir: docs/site }
 
   pack:
     if: github.event_name != 'pull_request'
     permissions:
       contents: write
-    uses: oxidean/docs-manifest/.github/workflows/release.yml@v0.1.1
+    uses: oxidean/docs-manifest/.github/workflows/release.yml@v0.1.2
     with:
       tag: ${{ github.ref_name || inputs.tag }}
+      product: my-product            # site slug; enables the dispatch below
+    secrets:
+      site_dispatch_token: ${{ secrets.DOCS_SITE_DISPATCH_TOKEN }}
 ```
 
 Bootstrap onto an already-published release:
@@ -100,6 +103,21 @@ workflow packs and attaches the bundle to that existing release.
 
 `manifest.version` must bump with every matching tag, even when content is
 unchanged — that is the freshness gate.
+
+## Site dispatch
+
+After a bundle attaches, `release.yml` fires a `workflow_dispatch` to the
+site repo (`docs-release.yml` in `oxidean/oxidean.dev` by default) carrying
+`{product, version, repo, tag}` — the site pins the new version in
+`docs-versions.lock.json` and opens a bump PR. The step is fail-soft: it
+skips when `product` is unset or the secret is missing, and a dispatch
+failure only warns — the attached bundle stays discoverable via
+`docs:update`.
+
+Auth: `site_dispatch_token` needs **Actions:write** on the site repo
+(a fine-grained PAT scoped to it, or an equivalent app token), passed as
+the org/repo secret `DOCS_SITE_DISPATCH_TOKEN`. Override `site-repo` /
+`site-workflow` for non-default targets.
 
 ## Development
 
