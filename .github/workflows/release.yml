@@ -10,13 +10,13 @@ name: docs-site release pack
 #     docs:
 #       permissions:
 #         contents: write
-#       uses: oxidean/docs-manifest/.github/workflows/release.yml@v0.1.4
+#       uses: oxidean/docs-manifest/.github/workflows/release.yml@v0.1.6
 #       with:
 #         tag: ${{ github.ref_name }}   # or dispatch input
 #         dir: docs/site                # optional
-#         cli-version: v0.1.4           # optional
+#         cli-version: v0.1.6           # optional
 #         product: oxl                  # optional; enables site dispatch
-#         src-ref: main                 # optional; docs source for bootstrap
+#         src-ref: main                 # optional; protected ref only (main/master or a release tag)
 #         release-wait-minutes: 30      # optional; poll for the release
 #       secrets:
 #         site_dispatch_token: ${{ secrets.DOCS_SITE_DISPATCH_TOKEN }}
@@ -53,10 +53,10 @@ on:
       cli-version:
         description: docs-manifest release tag to install
         required: false
-        default: v0.1.4
+        default: v0.1.6
         type: string
       src-ref:
-        description: Ref checked out for docs/site content (default = tag); use to bootstrap a pre-docs tag from a newer ref
+        description: Ref checked out for docs/site content (default = tag); restricted to main/master or a release tag
         required: false
         default: ""
         type: string
@@ -104,7 +104,12 @@ jobs:
           # Dispatch-supplied inputs reach later run steps as text — refuse
           # anything that is not a plain ref/path token before it can.
           [[ "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ && "$TAG" =~ [0-9] ]] || { echo "::error::invalid tag input: $TAG"; exit 1; }
-          [[ -z "$SRC_REF" || "$SRC_REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "::error::invalid src-ref input"; exit 1; }
+          # src-ref may only supply docs from a protected ref: the default
+          # branch or a release tag. Anything else — fork PR refs like
+          # pull/123/head, unprotected branches — could pack arbitrary
+          # content into a release asset; the manifest gate checks the
+          # version field, not content provenance.
+          [[ -z "$SRC_REF" || "$SRC_REF" =~ ^(main|master|[A-Za-z-]*v?[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.-]*)$ ]] || { echo "::error::src-ref must be main, master, or a release tag — fork PR refs cannot supply release docs"; exit 1; }
           [[ "$DIR" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ && "$DIR" != *..* ]] || { echo "::error::invalid dir input"; exit 1; }
           [[ -z "$VERSION" || "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+[-.+A-Za-z0-9]*$ ]] || { echo "::error::invalid version input"; exit 1; }
 
