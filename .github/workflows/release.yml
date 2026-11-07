@@ -93,6 +93,21 @@ jobs:
     name: pack + attach docs bundle
     runs-on: ubuntu-latest
     steps:
+      - name: Validate inputs
+        env:
+          TAG: ${{ inputs.tag }}
+          SRC_REF: ${{ inputs.src-ref }}
+          DIR: ${{ inputs.dir }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # Dispatch-supplied inputs reach later run steps as text — refuse
+          # anything that is not a plain ref/path token before it can.
+          [[ "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ && "$TAG" =~ [0-9] ]] || { echo "::error::invalid tag input: $TAG"; exit 1; }
+          [[ -z "$SRC_REF" || "$SRC_REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "::error::invalid src-ref input"; exit 1; }
+          [[ "$DIR" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ && "$DIR" != *..* ]] || { echo "::error::invalid dir input"; exit 1; }
+          [[ -z "$VERSION" || "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+[-.+A-Za-z0-9]*$ ]] || { echo "::error::invalid version input"; exit 1; }
+
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.src-ref != '' && inputs.src-ref || inputs.tag }}
@@ -121,7 +136,10 @@ jobs:
           echo "version=$ver" >> "$GITHUB_OUTPUT"
 
       - name: Pack bundle
-        run: docs-manifest pack "${{ inputs.dir }}" --version "${{ steps.docs.outputs.version }}" --out "docs-${{ steps.docs.outputs.version }}.tar.gz"
+        env:
+          DIR: ${{ inputs.dir }}
+          DOCS_VERSION: ${{ steps.docs.outputs.version }}
+        run: docs-manifest pack "$DIR" --version "$DOCS_VERSION" --out "docs-${DOCS_VERSION}.tar.gz"
 
       # The Release may be created by a different workflow on the same tag
       # (e.g. a binary matrix lane that stages a draft and publishes later).
