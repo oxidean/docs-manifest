@@ -82,14 +82,14 @@ on:
 jobs:
   validate:
     if: github.event_name == 'pull_request'
-    uses: oxidean/docs-manifest/.github/workflows/validate.yml@v0.1.0
+    uses: oxidean/docs-manifest/.github/workflows/validate.yml@v0.1.1
     # with: { dir: docs/site }
 
   pack:
     if: github.event_name != 'pull_request'
     permissions:
       contents: write
-    uses: oxidean/docs-manifest/.github/workflows/release.yml@v0.1.0
+    uses: oxidean/docs-manifest/.github/workflows/release.yml@v0.1.1
     with:
       tag: ${{ github.ref_name || inputs.tag }}
 ```
