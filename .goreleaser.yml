@@ -25,7 +25,7 @@ checksum:
 signs:
   - cmd: cosign
     env:
-      - COSIGN_EXPERIMENTAL: "1"
+      - COSIGN_EXPERIMENTAL=1
     signature: '${artifact}.sigstore.json'
     args:
       - sign-blob
