@@ -1,0 +1,18 @@
+manifest_version: 1
+product:
+  slug: widget
+  name: Widget
+  repo: oxidean/widget
+  tag_pattern: "v*"
+version: "1.2.3"
+pages:
+  - label: Widget
+    link: /
+  - label: Getting started
+    link: /getting-started/
+  - label: Language
+    items:
+      - label: Overview
+        link: /language/
+assets:
+  - images/**

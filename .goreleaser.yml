@@ -1,0 +1,37 @@
+version: 2
+project_name: docs-manifest
+before:
+  hooks:
+    - go mod tidy
+builds:
+  - id: docs-manifest
+    main: ./cmd/docs-manifest
+    binary: docs-manifest
+    ldflags:
+      - -s -w -X github.com/oxidean/docs-manifest/internal/buildinfo.Version={{ .Version }}
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+archives:
+  - formats: [tar.gz]
+    name_template: 'docs-manifest_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+checksum:
+  name_template: checksums.txt
+signs:
+  - cmd: cosign
+    env:
+      - COSIGN_EXPERIMENTAL: "1"
+    signature: '${artifact}.sigstore.json'
+    args:
+      - sign-blob
+      - '--bundle=${signature}'
+      - '--yes'
+      - '${artifact}'
+    artifacts: checksum
+release:
+  prerelease: auto

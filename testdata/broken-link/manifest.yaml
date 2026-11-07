@@ -1,0 +1,10 @@
+manifest_version: 1
+product:
+  slug: widget
+  name: Widget
+  repo: oxidean/widget
+  tag_pattern: "v*"
+version: "1.0.0"
+pages:
+  - label: Widget
+    link: /

@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: go test / vet / build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+      - run: go vet ./...
+      - run: go build ./cmd/docs-manifest
+
+  self-validate:
+    name: CLI validates own fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go build -o /tmp/docs-manifest ./cmd/docs-manifest
+      - run: /tmp/docs-manifest validate testdata/valid
+      - name: broken fixtures all fail
+        run: |
+          set -euo pipefail
+          for d in testdata/bad-schema testdata/missing-manifest testdata/missing-page testdata/orphan-page testdata/orphan-file testdata/broken-link; do
+            if /tmp/docs-manifest validate "$d"; then
+              echo "expected $d to fail validation" >&2
+              exit 1
+            fi
+          done
+
+  commit-lint:
+    name: commit-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: lint commit range (PR)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: scripts/commit-check.sh --range "$PR_BASE..$PR_HEAD"
+      - name: lint PR title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: scripts/commit-check.sh --pr-title "$PR_TITLE"
+      - name: scan PR body for attribution markers
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s\n' "$PR_BODY" > pr-body.txt
+          open_m='<!-- This is an auto-generated comment: release notes by coderabbit.ai -->'
+          close_m='<!-- end of auto-generated comment: release notes by coderabbit.ai -->'
+          opens=$(grep -cF "$open_m" pr-body.txt || :)
+          closes=$(grep -cF "$close_m" pr-body.txt || :)
+          if [ "$opens" != "$closes" ]; then
+            echo "commit-check: unbalanced CodeRabbit release-notes markers in PR body" >&2
+            exit 1
+          fi
+          awk -v S="$open_m" -v E="$close_m" '
+            { buf = buf $0 "\n" }
+            END {
+              out = ""; rest = buf
+              while ((i = index(rest, S)) > 0) {
+                tail = substr(rest, i + length(S))
+                j = index(tail, E)
+                if (j == 0) break
+                out = out substr(rest, 1, i - 1)
+                rest = substr(tail, j + length(E))
+              }
+              printf "%s", out rest
+            }' pr-body.txt > pr-body-clean.txt
+          scripts/commit-check.sh --scan-file pr-body-clean.txt

@@ -1,0 +1,86 @@
+name: docs-site release pack
+
+# Reusable workflow: product repos call this on matching release tags (or
+# via workflow_dispatch for the one-time bootstrap onto an existing
+# release). Re-validates the subtree, hard-gates manifest.version against
+# the tag, and uploads docs-<version>.tar.gz + .sha256 to the release.
+#
+#   jobs:
+#     docs:
+#       permissions:
+#         contents: write
+#       uses: oxidean/docs-manifest/.github/workflows/release.yml@v0.1.0
+#       with:
+#         tag: ${{ github.ref_name }}   # or dispatch input
+#         dir: docs/site                # optional
+#         cli-version: v0.1.0           # optional
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag the docs bundle attaches to (e.g. v0.4.0, ox-v0.4.2)
+        required: true
+        type: string
+      version:
+        description: Docs version override; default derives from tag by stripping the non-digit prefix
+        required: false
+        default: ""
+        type: string
+      dir:
+        description: Docs subtree to pack
+        required: false
+        default: docs/site
+        type: string
+      cli-version:
+        description: docs-manifest release tag to install
+        required: false
+        default: v0.1.0
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  pack:
+    name: pack + attach docs bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Install docs-manifest
+        env:
+          CLI_VERSION: ${{ inputs.cli-version }}
+        run: |
+          set -euo pipefail
+          ver="${CLI_VERSION#v}"
+          url="https://github.com/oxidean/docs-manifest/releases/download/${CLI_VERSION}/docs-manifest_${ver}_Linux_x86_64.tar.gz"
+          curl -fsSL "$url" -o /tmp/docs-manifest.tar.gz
+          tar -xzf /tmp/docs-manifest.tar.gz -C /tmp docs-manifest
+          sudo install -m 0755 /tmp/docs-manifest /usr/local/bin/docs-manifest
+          docs-manifest version
+
+      - name: Resolve docs version
+        id: docs
+        env:
+          TAG: ${{ inputs.tag }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # Strip the longest non-digit prefix: ox-v0.4.2 -> 0.4.2, v0.1.7 -> 0.1.7.
+          ver="${VERSION:-${TAG#"${TAG%%[0-9]*}"}}"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+
+      - name: Pack bundle
+        run: docs-manifest pack "${{ inputs.dir }}" --version "${{ steps.docs.outputs.version }}" --out "docs-${{ steps.docs.outputs.version }}.tar.gz"
+
+      - name: Attach to release ${{ inputs.tag }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          DOCS_VERSION: ${{ steps.docs.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" "docs-${DOCS_VERSION}.tar.gz" "docs-${DOCS_VERSION}.tar.gz.sha256" --clobber
