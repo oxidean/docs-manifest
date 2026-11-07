@@ -10,11 +10,11 @@ name: docs-site release pack
 #     docs:
 #       permissions:
 #         contents: write
-#       uses: oxidean/docs-manifest/.github/workflows/release.yml@v0.1.3
+#       uses: oxidean/docs-manifest/.github/workflows/release.yml@v0.1.4
 #       with:
 #         tag: ${{ github.ref_name }}   # or dispatch input
 #         dir: docs/site                # optional
-#         cli-version: v0.1.3           # optional
+#         cli-version: v0.1.4           # optional
 #         product: oxl                  # optional; enables site dispatch
 #         src-ref: main                 # optional; docs source for bootstrap
 #         release-wait-minutes: 30      # optional; poll for the release
@@ -53,7 +53,7 @@ on:
       cli-version:
         description: docs-manifest release tag to install
         required: false
-        default: v0.1.3
+        default: v0.1.4
         type: string
       src-ref:
         description: Ref checked out for docs/site content (default = tag); use to bootstrap a pre-docs tag from a newer ref
@@ -124,8 +124,10 @@ jobs:
         run: docs-manifest pack "${{ inputs.dir }}" --version "${{ steps.docs.outputs.version }}" --out "docs-${{ steps.docs.outputs.version }}.tar.gz"
 
       # The Release may be created by a different workflow on the same tag
-      # (e.g. a binary matrix lane publishing a draft) — poll until it
-      # exists instead of racing it. Drafts are visible to `gh release view`.
+      # (e.g. a binary matrix lane that stages a draft and publishes later).
+      # Poll until it exists AND is published: upload targets a real release,
+      # and the site dispatch below fetches the bundle over the public
+      # download URL, which 404s while the release is still a draft.
       - name: Wait for release ${{ inputs.tag }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -134,15 +136,15 @@ jobs:
         run: |
           set -euo pipefail
           deadline=$(( $(date +%s) + WAIT_MINUTES * 60 ))
-          until gh release view "$TAG" >/dev/null 2>&1; do
+          until [ "$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null || echo true)" = "false" ]; do
             if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "::error::release $TAG did not appear within ${WAIT_MINUTES}m — the docs bundle cannot attach"
+              echo "::error::release $TAG was not published within ${WAIT_MINUTES}m — the docs bundle cannot attach"
               exit 1
             fi
-            echo "waiting for release $TAG ..."
+            echo "waiting for release $TAG to be published ..."
             sleep 30
           done
-          echo "release $TAG exists"
+          echo "release $TAG is published"
 
       - name: Attach to release ${{ inputs.tag }}
         env:
