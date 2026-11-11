@@ -9,7 +9,8 @@ name: docs-site release pack
 #   jobs:
 #     docs:
 #       permissions:
-#         contents: write
+#         contents: write   # release asset upload
+#         issues: write     # dispatch-failure issue filing (optional — see below)
 #       uses: oxidean/docs-manifest/.github/workflows/release.yml@v0.1.6
 #       with:
 #         tag: ${{ github.ref_name }}   # or dispatch input
@@ -24,7 +25,10 @@ name: docs-site release pack
 # The dispatch step is fail-soft: with no `product` input or no
 # site_dispatch_token secret it skips with a notice, so a missing site
 # config never breaks a product release. The token needs Actions:write
-# on the site repo (see README).
+# on the site repo (see README). When dispatch does fail, the step also
+# files a deduplicated issue in the calling repo so the failure surfaces
+# beyond a log annotation — that leg needs the caller's `issues: write`
+# grant and degrades to the warning alone without it.
 #
 # `src-ref` selects which ref supplies docs/site — the bundle still attaches
 # to `tag` and version still derives from `tag`, so a tag that predates
@@ -87,6 +91,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   pack:
@@ -180,10 +185,14 @@ jobs:
 
       # Fail-soft: skips when no product input or no dispatch token, and a
       # dispatch failure never fails the release — the bundle is already
-      # attached and docs:update can still discover it.
+      # attached and docs:update can still discover it. A failed dispatch
+      # does file one tracking issue per tag in the calling repo (the
+      # caller's docs job needs issues:write for that to land — without it
+      # the filing itself degrades to another warning).
       - name: Notify site repo
         env:
           DISPATCH_TOKEN: ${{ secrets.site_dispatch_token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SITE_REPO: ${{ inputs.site-repo }}
           SITE_WORKFLOW: ${{ inputs.site-workflow }}
           PRODUCT: ${{ inputs.product }}
@@ -206,4 +215,16 @@ jobs:
             echo "dispatched $SITE_WORKFLOW to $SITE_REPO: $PRODUCT@$DOCS_VERSION ($SOURCE_REPO $TAG)"
           else
             echo "::warning::docs dispatch failed — bundle attached; site can still poll via docs:update"
+            # Surface the failure where it is not a buried annotation:
+            # one open issue per failed tag in the calling repo.
+            title="docs dispatch failed: ${SOURCE_REPO}@${TAG}"
+            if ! gh issue list -R "$SOURCE_REPO" --state open --limit 50 \
+                --search "in:title \"docs dispatch failed\"" \
+                --json title --jq '.[].title' | grep -Fxq "$title"; then
+              body="The docs pack job attached \`docs-${DOCS_VERSION}.tar.gz\` to [\`${TAG}\`](${GITHUB_SERVER_URL}/${SOURCE_REPO}/releases/tag/${TAG}) but the \`workflow_dispatch\` to ${SITE_REPO} (\`${SITE_WORKFLOW}\`) failed — see [the run log](${GITHUB_SERVER_URL}/${SOURCE_REPO}/actions/runs/${GITHUB_RUN_ID}). The release itself is fine and the site still discovers the bundle via the docs:update poll; this tracks the dispatch gap (usually an expired or under-scoped DOCS_SITE_DISPATCH_TOKEN). Close once the dispatch has succeeded or the poll has ingested ${DOCS_VERSION}."
+              gh issue create -R "$SOURCE_REPO" --title "$title" --body "$body" \
+                || echo "::warning::could not file tracking issue — caller's docs job needs issues:write"
+            else
+              echo "open tracking issue already covers $TAG — not filing another"
+            fi
           fi
